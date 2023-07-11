@@ -213,6 +213,13 @@ Verifying contracts on sourcify
     * XCM 
         * https://docs.moonbeam.network/builders/interoperability/xcm/overview/
         * https://github.com/AstarNetwork/ink-xvm-sdk/tree/main
+        * https://moonbeam.network/builders/connected-contracts/
+        * https://moonbeam.network/blog/cross-chain-smart-contracts/
+        * https://docs.moonbeam.network/tutorials/interoperability/cross-chain-dao/
+        * https://moonbeam.network/blog/connected-contracts-with-hyperlane/
+        * https://moonbeam.network/blog/connected-contracts-axelar/
+        * https://moonbeam.network/blog/connected-contracts-wormhole/
+        * https://moonbeam.network/blog/connected-contracts-layerzero/
     * Polkadot.js
         * https://docs.moonbeam.network/builders/build/substrate-api/polkadot-js-api/
 

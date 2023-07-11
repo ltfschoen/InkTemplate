@@ -8,7 +8,7 @@ import {Randomness, MIN_VRF_BLOCKS_DELAY} from "../precompiles/randomness/Random
 // https://github.com/PureStake/moonbeam/blob/master/precompiles/randomness/RandomnessConsumer.sol
 import {RandomnessConsumer} from "../precompiles/randomness/RandomnessConsumer.sol";
 
-contract RandomNumber is RandomnessConsumer {
+contract FlipperGameRandomNumber is RandomnessConsumer {
     // The Randomness Precompile Interface
 
     // create a wrapper to access the randomness precompile
@@ -26,22 +26,28 @@ contract RandomNumber is RandomnessConsumer {
     uint32 public VRF_BLOCKS_DELAY;
     bytes32 public SALT_PREFIX = "change-me-to-anything";
 
-    uint256 private constant ROLL_IN_PROGRESS = 42;
+    uint256 private constant FLIP_IN_PROGRESS = 1;
+    uint256 private constant FLIP_COMPLETED = 2;
 
     // Storage variables for the current request
     uint256 public requestId;
-    uint256[] public random;
 
-    // address public s_owner;
+    address public s_owner;
+    address public flipperGameContractAddress;
 
-    // map rollers to requestIds
-    mapping(uint256 => address) private s_rollers;
-    // map vrf results to rollers
-    mapping(address => uint256) private s_results;
+    // map gameIds to requestIds
+    mapping(uint256 => uint256) private s_flipper_req_id_to_game_id;
+    // map requestIds to gameIds
+    mapping(uint256 => uint256) private s_flipper_game_id_to_req_id;
+    mapping(uint256 => uint256) private s_status;
+    // map vrf results (modulus 20) to gameIds
+    mapping(uint256 => uint256) private s_results;
+    // map vrf results (originals) to gameIds
+    mapping(uint256 => uint256) private s_results_original;
 
-    event DiceRolled(uint256 indexed requestId, address indexed roller);
-    event DiceLanded(uint256 indexed requestId, uint256 indexed result);
-    event DiceRollFulfilled(uint256 indexed requestId, uint256 d20Value);
+    event FlipStarted(uint256 indexed requestId, uint256 indexed _gameId, address indexed flipper);
+    event FlipLanded(uint256 indexed requestId, uint256 indexed result);
+    event FlipFulfilled(uint256 indexed requestId, uint256 d20Value, uint256[] randomWords);
 
     constructor() payable RandomnessConsumer() {
         // Initialize use of Randomness dependency before trying to access it
@@ -52,13 +58,20 @@ contract RandomNumber is RandomnessConsumer {
         require(msg.value >= requiredDeposit);
         // s_owner = msg.sender;
         VRF_BLOCKS_DELAY = MIN_VRF_BLOCKS_DELAY;
+
+        s_owner = msg.sender;
+    }
+
+    function setFlipperGameContractAddress(address _flipperGameContractAddress)
+        public onlyOwner
+    {
+        flipperGameContractAddress = _flipperGameContractAddress;
     }
 
     function requestRandomness(
-        address roller
-    ) public payable {
-    // ) public onlyOwner payable {
-        require(s_results[roller] == 0, "Already rolled");
+        address flipper, uint256 _gameId
+    ) public onlyFlipperGameContract payable {
+        require(s_results[_gameId] == 0, "Already flipped for this flipper game id");
         // Make sure that the value sent is enough
         require(msg.value >= MIN_FEE, "Insufficient fulfillment fee");
         // Request local VRF randomness
@@ -69,14 +82,14 @@ contract RandomNumber is RandomnessConsumer {
             msg.value, // Fulfillment fee
             FULFILLMENT_GAS_LIMIT, // Gas limit for the fulfillment
             SALT_PREFIX ^ bytes32(requestId++), // A salt to generate unique results
-            // 1 // Number of random words
             1, // Number of random words
             VRF_BLOCKS_DELAY // Delay before request can be fulfilled
         );
 
-        s_rollers[requestId] = roller;
-        s_results[roller] = ROLL_IN_PROGRESS;
-        emit DiceRolled(requestId, roller);
+        s_flipper_req_id_to_game_id[requestId] = _gameId;
+        s_flipper_game_id_to_req_id[_gameId] = requestId;
+        s_status[_gameId] = FLIP_COMPLETED;
+        emit FlipStarted(requestId, _gameId, flipper);
     }
 
     function getRequestStatus() public view returns(Randomness.RequestStatus) {
@@ -84,7 +97,7 @@ contract RandomNumber is RandomnessConsumer {
         return requestStatus;
     }
 
-    function fulfillRequest() public {
+    function fulfillRequest() public onlyFlipperGameContract {
         theRandomness.fulfillRequest(requestId);
     }
 
@@ -94,25 +107,32 @@ contract RandomNumber is RandomnessConsumer {
     ) internal override {
         // Save the randomness results
         uint256 d20Value = (randomWords[0] % 20) + 1;
-        s_results[s_rollers[reqId]] = d20Value;
-        // Save the latest for comparison
-        random = randomWords;
-        emit DiceRollFulfilled(requestId, d20Value);
+        // convert from reqId to gameId since otherwise to get access to current game
+        s_results[s_flipper_req_id_to_game_id[reqId]] = d20Value;
+        s_results_original[s_flipper_req_id_to_game_id[reqId]] = randomWords[0];
+        s_status[s_flipper_req_id_to_game_id[reqId]] = FLIP_COMPLETED;
+        emit FlipFulfilled(requestId, d20Value, randomWords);
     }
 
     /**
-     * @notice Get the value rolled by a player once the address has rolled
-     * @param player address
-     * @return id as a string
+     * @notice Get the value flipped for a gameId once the address has flipped and fulfilled
+     * @param _gameId 2
+     * @return random number (modulus 20)
      */
-    function getRolledValueForPlayer(address player) public view returns (uint256) {
-        require(s_results[player] != 0, "Dice not rolled");
-        require(s_results[player] != ROLL_IN_PROGRESS, "Roll in progress");
-        return s_results[player];
+    function getFlippedValueForGameId(uint256 _gameId) public view returns (uint256) {
+        require(s_status[_gameId] != 0, "Not yet flipped");
+        require(s_status[_gameId] != FLIP_IN_PROGRESS, "Flip in progress");
+        require(s_status[_gameId] == FLIP_COMPLETED, "Flip completed");
+        return s_results[_gameId];
     }
 
-    // modifier onlyOwner() {
-    //     require(msg.sender == s_owner);
-    //     _;
-    // }
+    modifier onlyOwner() {
+        require(msg.sender == s_owner);
+        _;
+    }
+
+    modifier onlyFlipperGameContract() {
+        require(msg.sender == flipperGameContractAddress);
+        _;
+    }
 }

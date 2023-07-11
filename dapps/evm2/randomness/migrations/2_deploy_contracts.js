@@ -10,7 +10,7 @@ module.exports = async function (deployer) {
     console.log('deploy_contracts to Moonbase Alpha');
 
     const RandomNumber = artifacts.require("../build/contracts/RandomNumber");
-    // const Flipper = artifacts.require("../build/contracts/Flipper");
+    const Flipper = artifacts.require("../build/contracts/Flipper");
   
     providerInstance = new Web3.providers.WebsocketProvider(process.env.MOONBASE_BLASTAPI_ENDPOINT, {}, { delay: 500, autoReconnect: true, maxAttempts: 100 });
     console.log('providerInstance: ', providerInstance);
@@ -19,7 +19,7 @@ module.exports = async function (deployer) {
     console.log('web3.currentProvider: ', web3.currentProvider);
     // must be at least 1 ether since it must be greater than `REQUEST_DEPOSIT_AMOUNT`
     deployer.deploy(RandomNumber, { value: web3.utils.toWei('1', 'ether') });
-    // deployer.deploy(Flipper, false);
+    deployer.deploy(Flipper, false);
   } else if (deployer.network == "sepolia") {
     console.log('deploy_contracts to Chainlink Sepolia');
 
